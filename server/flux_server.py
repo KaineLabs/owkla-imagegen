@@ -174,25 +174,38 @@ def generate(body: GenerateBody) -> Response:
         raise HTTPException(status_code=503, detail="model not loaded yet")
 
     steps = body.num_inference_steps
-    guidance = 3.5  # FLUX.2-dev's recommended default
+    guidance = 3.5  # FLUX-family recommended default
     if body.fast:
         # Rough parity with the JS `fast` flag — fewer steps, lower
         # guidance. Not a true distilled model, just a speed preset.
         steps = max(4, steps // 4)
         guidance = 0.0
 
+    # Ideogram4Pipeline uses its own `guidance_schedule` (a curve over
+    # steps) rather than a single scalar, and errors if both are set:
+    #   "Only one of `guidance_scale` and `guidance_schedule` may be set."
+    # So we omit `guidance_scale` entirely for Ideogram — its default
+    # schedule is tuned for its own architecture and outperforms any
+    # single scalar we could pass.
+    is_ideogram = "ideogram" in MODEL_ID.lower()
+
     log.info(
-        "generate: %dx%d steps=%d guidance=%.1f prompt=%r",
-        body.width, body.height, steps, guidance, body.prompt[:80],
+        "generate: %dx%d steps=%d guidance=%s prompt=%r",
+        body.width, body.height, steps,
+        "schedule (ideogram default)" if is_ideogram else f"{guidance:.1f}",
+        body.prompt[:80],
     )
 
-    result = pipe(
-        prompt=body.prompt,
-        width=body.width,
-        height=body.height,
-        num_inference_steps=steps,
-        guidance_scale=guidance,
-    )
+    call_kwargs = {
+        "prompt": body.prompt,
+        "width": body.width,
+        "height": body.height,
+        "num_inference_steps": steps,
+    }
+    if not is_ideogram:
+        call_kwargs["guidance_scale"] = guidance
+
+    result = pipe(**call_kwargs)
     image = result.images[0]
 
     buf = io.BytesIO()
