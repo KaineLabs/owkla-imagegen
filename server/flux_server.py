@@ -40,9 +40,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-# diffusers exposes FluxPipeline for both FLUX.1 and FLUX.2 checkpoints.
-# If a future FLUX release ships a distinct class, swap the import here.
-from diffusers import FluxPipeline
+# FLUX.1 and FLUX.2 have different pipeline classes (FluxPipeline vs
+# Flux2Pipeline — FLUX.2 uses one Mistral-based text encoder instead of
+# T5+CLIP and drops the image encoder). `DiffusionPipeline.from_pretrained`
+# reads the target model's `model_index.json` and instantiates the
+# correct subclass automatically, so this loader works for either
+# version without swapping imports.
+from diffusers import DiffusionPipeline
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,8 +66,10 @@ DTYPE_NAME = os.environ.get("TORCH_DTYPE", "bfloat16")
 DTYPE = getattr(torch, DTYPE_NAME)
 
 app = FastAPI()
-# Populated once at boot in @app.on_event("startup").
-pipe: Optional[FluxPipeline] = None
+# Populated once at boot in @app.on_event("startup"). Typed as the
+# generic DiffusionPipeline since the concrete class depends on which
+# FLUX version is loaded (FluxPipeline vs Flux2Pipeline).
+pipe: Optional[DiffusionPipeline] = None
 
 
 class GenerateBody(BaseModel):
@@ -81,7 +87,7 @@ class GenerateBody(BaseModel):
 def _load_model() -> None:
     global pipe
     log.info("Loading %s (dtype=%s) …", MODEL_ID, DTYPE_NAME)
-    pipe = FluxPipeline.from_pretrained(MODEL_ID, torch_dtype=DTYPE)
+    pipe = DiffusionPipeline.from_pretrained(MODEL_ID, torch_dtype=DTYPE)
     # Move to GPU. `enable_model_cpu_offload` would let smaller cards
     # run this at ~2-4x slower — worth toggling for <40GB VRAM. On the
     # 80GB A100 we're targeting, direct `.to("cuda")` is faster.
