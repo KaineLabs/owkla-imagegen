@@ -1,0 +1,16 @@
+# PyTorch is preinstalled in the Vast AI PyTorch image — do NOT re-install
+# torch here or you'll trigger a full CUDA reinstall.
+# Version pins are conservative; bump if a newer FLUX release needs them.
+
+diffusers>=0.31.0
+transformers>=4.44.0
+accelerate>=0.34.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
+huggingface_hub>=0.24.0
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
+
+pillow>=10.0.0
