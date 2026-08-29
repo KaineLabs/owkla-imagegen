@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Owkla — Recipe Prompt Preview</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --pink: #E53F86;
+      --pink-soft: #FBE7F1;
+      --bg: #FBF9FD;
+      --card: #FFFFFF;
+      --border: #F3E3ED;
+      --text: #1A1220;
+      --muted: #7F7188;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container { max-width: 860px; margin: 0 auto; padding: 32px 20px; }
+    h1 {
+      font-size: 28px; margin: 0 0 6px 0; letter-spacing: -0.6px;
+    }
+    .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+
+    .config-card, .picker-card, .output-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .config-card { background: #FFF6F9; }
+    .config-card summary {
+      cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted);
+      letter-spacing: 0.3px; text-transform: uppercase;
+    }
+    .config-card .fields { margin-top: 14px; display: grid; gap: 10px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+
+    input[type="text"], input[type="search"], input[type="url"], input[type="password"] {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid var(--border); border-radius: 10px;
+      font-size: 14px; font-family: inherit; background: #F5F2F6;
+    }
+    input:focus { outline: none; border-color: var(--pink); background: #FFF; }
+
+    .row { display: flex; gap: 10px; align-items: center; }
+    .btn {
+      padding: 10px 16px; border: none; border-radius: 999px;
+      font-size: 13px; font-weight: 700; cursor: pointer;
+      background: var(--pink); color: #fff;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn.secondary { background: var(--pink-soft); color: var(--pink); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .results {
+      max-height: 320px; overflow-y: auto;
+      border: 1px solid var(--border); border-radius: 10px;
+      margin-top: 10px; background: #F9F7FA;
+    }
+    .result-item {
+      padding: 10px 14px; cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; gap: 10px;
+    }
+    .result-item:last-child { border-bottom: none; }
+    .result-item:hover { background: var(--pink-soft); }
+    .result-item.selected { background: var(--pink-soft); }
+    .result-name { font-weight: 600; font-size: 13.5px; }
+    .result-meta { color: var(--muted); font-size: 12px; }
+    .empty { padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
+
+    .prompt-box {
+      background: #F5F2F6; border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px; margin-top: 10px;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 13px; line-height: 1.6;
+      white-space: pre-wrap; word-break: break-word;
+      min-height: 120px;
+    }
+
+    .copy-row {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 12px;
+    }
+    .copy-hint { color: var(--muted); font-size: 12px; }
+    .copy-hint.success { color: #16a34a; font-weight: 600; }
+
+    .image-preview {
+      margin-top: 12px; padding: 10px; background: #F9F7FA;
+      border-radius: 10px; border: 1px solid var(--border);
+      font-size: 12px; color: var(--muted);
+    }
+    .image-preview a { color: var(--pink); word-break: break-all; text-decoration: none; }
+    .image-preview a:hover { text-decoration: underline; }
+    .image-preview img { max-width: 100%; border-radius: 8px; margin-top: 8px; display: block; }
+
+    .status { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .status.err { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Recipe Prompt Preview</h1>
+    <div class="subtitle">Pick a recipe → see the exact prompt <code>generate_recipe_images.ts</code> would send to FLUX. One click to copy — paste into Midjourney, DALL-E, Ideogram, or wherever.</div>
+
+    <details class="config-card" id="configCard">
+      <summary>Supabase connection</summary>
+      <div class="fields">
+        <div>
+          <label>SUPABASE URL</label>
+          <input id="supabaseUrl" type="url" placeholder="https://<project>.supabase.co" />
+        </div>
+        <div>
+          <label>ANON KEY (safe to paste — public key)</label>
+          <input id="supabaseKey" type="password" placeholder="eyJhbGci..." />
+        </div>
+        <div class="row">
+          <button class="btn" id="connectBtn">Connect & load recipes</button>
+          <span class="status" id="connectStatus">Not connected.</span>
+        </div>
+      </div>
+    </details>
+
+    <div class="picker-card">
+      <label for="searchInput">SEARCH RECIPES</label>
+      <input id="searchInput" type="search" placeholder="Type recipe name, cuisine, or slug…" disabled />
+      <div class="results" id="results">
+        <div class="empty">Connect to Supabase to load recipes.</div>
+      </div>
+    </div>
+
+    <div class="output-card">
+      <label>GENERATED PROMPT</label>
+      <div class="prompt-box" id="promptBox">Select a recipe above to see its prompt.</div>
+      <div class="copy-row">
+        <span class="copy-hint" id="copyHint">Click a recipe to enable the copy button.</span>
+        <button class="btn secondary" id="copyBtn" disabled>Copy prompt</button>
+      </div>
+      <div class="image-preview" id="imagePreview" style="display:none;">
+        <div><strong>Current stored image_url:</strong></div>
+        <a id="imageUrl" href="#" target="_blank"></a>
+        <img id="imageImg" alt="Current image" onerror="this.style.display='none'" />
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ─── DOM refs ────────────────────────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+    const supabaseUrlInput = $('supabaseUrl');
+    const supabaseKeyInput = $('supabaseKey');
+    const connectBtn = $('connectBtn');
+    const connectStatus = $('connectStatus');
+    const searchInput = $('searchInput');
+    const resultsEl = $('results');
+    const promptBox = $('promptBox');
+    const copyBtn = $('copyBtn');
+    const copyHint = $('copyHint');
+    const imagePreview = $('imagePreview');
+    const imageUrl = $('imageUrl');
+    const imageImg = $('imageImg');
+    const configCard = $('configCard');
+
+    let allRecipes = [];
+    let selectedRecipe = null;
+
+    // ─── Persist credentials in localStorage (never leaves the browser) ─
+    const STORAGE_KEY = 'owkla-imagegen-creds';
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (saved.url) supabaseUrlInput.value = saved.url;
+    if (saved.key) supabaseKeyInput.value = saved.key;
+    // If both filled, auto-connect on load — one-click return visits.
+    if (saved.url && saved.key) {
+      configCard.open = false;
+      setTimeout(() => connectBtn.click(), 100);
+    }
+
+    // ─── Build prompt — MUST stay in sync with buildPrompt() in
+    // scripts/generate_recipe_images.ts. If that changes, mirror here.
+    function buildPrompt(r) {
+      const topIngredients = (r.ingredients || [])
+        .slice(0, 4)
+        .map((i) => (i && i.name) || '')
+        .filter(Boolean)
+        .join(', ');
+      const cuisineHint = r.cuisine ? ` in a ${r.cuisine} style` : '';
+      return [
+        `Overhead flat-lay food photography of ${r.name}${cuisineHint},`,
+        `featuring ${topIngredients},`,
+        `shot from directly above at a 90-degree top-down angle,`,
+        `dish perfectly centered and filling 75% of the frame,`,
+        `served on a matte white ceramic bowl or plate,`,
+        `placed on a matte white quartz surface,`,
+        `soft natural window light from the top-left, subtle soft shadows,`,
+        `glistening highlights, visible texture, vibrant natural colors,`,
+        `sharp focus across the entire dish, everything in focus,`,
+        `symmetrical composition, no plate rim distortion,`,
+        `appetizing, warm inviting palette,`,
+        `magazine-quality food photography,`,
+        `no text, no watermark, no hands, no utensils in frame`,
+      ].join(' ');
+    }
+
+    // ─── Connect + fetch recipes ────────────────────────────────────
+    connectBtn.addEventListener('click', async () => {
+      const url = supabaseUrlInput.value.trim();
+      const key = supabaseKeyInput.value.trim();
+      if (!url || !key) {
+        connectStatus.textContent = 'Both URL and key required.';
+        connectStatus.classList.add('err');
+        return;
+      }
+      connectStatus.classList.remove('err');
+      connectStatus.textContent = 'Loading recipes…';
+      connectBtn.disabled = true;
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ url, key }));
+
+      try {
+        const sb = supabase.createClient(url, key);
+        // Paginate — .select() caps at 1000 rows per call.
+        const rows = [];
+        let from = 0;
+        const PAGE = 1000;
+        while (true) {
+          const { data, error } = await sb
+            .from('recipes')
+            .select('slug, name, cuisine, meal_type, ingredients, image_url')
+            .order('name', { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          rows.push(...data);
+          if (data.length < PAGE) break;
+          from += PAGE;
+        }
+        allRecipes = rows;
+        connectStatus.textContent = `Loaded ${rows.length} recipes.`;
+        searchInput.disabled = false;
+        searchInput.focus();
+        renderResults(allRecipes.slice(0, 50));
+      } catch (e) {
+        connectStatus.textContent = 'Failed: ' + (e.message || String(e));
+        connectStatus.classList.add('err');
+      } finally {
+        connectBtn.disabled = false;
+      }
+    });
+
+    // ─── Search + render results ────────────────────────────────────
+    function renderResults(list) {
+      if (list.length === 0) {
+        resultsEl.innerHTML = '<div class="empty">No matches.</div>';
+        return;
+      }
+      resultsEl.innerHTML = list
+        .map(
+          (r, i) => `
+        <div class="result-item" data-slug="${r.slug}">
+          <div>
+            <div class="result-name">${escapeHtml(r.name)}</div>
+            <div class="result-meta">${escapeHtml(r.slug)}</div>
+          </div>
+          <div class="result-meta">${escapeHtml(r.cuisine || '')} · ${escapeHtml(r.meal_type || '')}</div>
+        </div>
+      `,
+        )
+        .join('');
+      // Wire clicks
+      resultsEl.querySelectorAll('.result-item').forEach((el) => {
+        el.addEventListener('click', () => {
+          const slug = el.getAttribute('data-slug');
+          const recipe = allRecipes.find((r) => r.slug === slug);
+          if (recipe) selectRecipe(recipe);
+          resultsEl.querySelectorAll('.result-item').forEach((e) => e.classList.remove('selected'));
+          el.classList.add('selected');
+        });
+      });
+    }
+
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim().toLowerCase();
+      if (!q) {
+        renderResults(allRecipes.slice(0, 50));
+        return;
+      }
+      const filtered = allRecipes.filter((r) => {
+        return (
+          r.name.toLowerCase().includes(q) ||
+          r.slug.toLowerCase().includes(q) ||
+          (r.cuisine || '').toLowerCase().includes(q) ||
+          (r.meal_type || '').toLowerCase().includes(q)
+        );
+      });
+      renderResults(filtered.slice(0, 100));
+    });
+
+    // ─── Select a recipe → build prompt ─────────────────────────────
+    function selectRecipe(recipe) {
+      selectedRecipe = recipe;
+      const prompt = buildPrompt(recipe);
+      promptBox.textContent = prompt;
+      copyBtn.disabled = false;
+      copyHint.textContent = 'Ready to copy.';
+      copyHint.classList.remove('success');
+
+      if (recipe.image_url) {
+        imagePreview.style.display = 'block';
+        imageUrl.href = recipe.image_url;
+        imageUrl.textContent = recipe.image_url;
+        imageImg.src = recipe.image_url;
+        imageImg.style.display = '';
+      } else {
+        imagePreview.style.display = 'block';
+        imageUrl.href = '#';
+        imageUrl.textContent = '(image_url is null — this recipe hasn\'t been generated yet)';
+        imageImg.style.display = 'none';
+      }
+    }
+
+    // ─── Copy button ────────────────────────────────────────────────
+    copyBtn.addEventListener('click', async () => {
+      if (!selectedRecipe) return;
+      const prompt = buildPrompt(selectedRecipe);
+      try {
+        await navigator.clipboard.writeText(prompt);
+        copyHint.textContent = 'Copied ✓';
+        copyHint.classList.add('success');
+        setTimeout(() => {
+          copyHint.textContent = 'Ready to copy.';
+          copyHint.classList.remove('success');
+        }, 2000);
+      } catch (e) {
+        copyHint.textContent = 'Copy failed: ' + e.message;
+        copyHint.classList.add('err');
+      }
+    });
+
+    // ─── Utility: escape HTML in interpolated user data ─────────────
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>
