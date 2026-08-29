@@ -4,7 +4,8 @@
   "private": true,
   "description": "Standalone recipe-image generator for Owkla — runs FLUX2 klein 9B against a Supabase recipes table and uploads PNGs to the recipe-images bucket.",
   "scripts": {
-    "generate": "tsx scripts/generate_recipe_images.ts"
+    "generate": "tsx scripts/generate_recipe_images.ts",
+    "generate:ingredients": "tsx scripts/generate_ingredient_images.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4"
