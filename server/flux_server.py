@@ -115,18 +115,17 @@ def _load_model() -> None:
     # manual `.to()` and the CPU-offload path — both would break the
     # quantized layout.
     #
-    # `device_map="auto"` lets accelerate compute the placement plan
-    # itself. Using literal `"cuda"` triggered
-    #   `NotImplementedError: Cannot copy out of meta tensor; no data!`
-    # on diffusers 0.33+ / accelerate 1.x because it tried to `.to()`
-    # meta-tensor weights that bitsandbytes had already reserved
-    # slots for. `"auto"` uses the balanced-single-GPU path which
-    # dispatches meta tensors via `to_empty()` instead.
+    # diffusers only accepts three device_map strings: "balanced",
+    # "cuda", "cpu". Literal "cuda" triggered
+    #   NotImplementedError: Cannot copy out of meta tensor; no data!
+    # for bitsandbytes-quantized weights because dispatch used `.to()`
+    # instead of `.to_empty()`. "balanced" uses accelerate's proper
+    # meta-tensor-aware path even on a single-GPU box.
     if quantized:
         pipe = DiffusionPipeline.from_pretrained(
-            MODEL_ID, torch_dtype=DTYPE, device_map="auto",
+            MODEL_ID, torch_dtype=DTYPE, device_map="balanced",
         )
-        log.info("Model loaded on CUDA via device_map=auto (quantized checkpoint).")
+        log.info("Model loaded on CUDA via device_map=balanced (quantized checkpoint).")
         return
 
     pipe = DiffusionPipeline.from_pretrained(MODEL_ID, torch_dtype=DTYPE)
