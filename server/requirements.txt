@@ -2,14 +2,19 @@
 # torch here or you'll trigger a full CUDA reinstall.
 # Version pins are conservative; bump if a newer FLUX release needs them.
 
-# FLUX.2 support landed in diffusers >= 0.32.0. Bump if a newer FLUX
-# release adds a distinct pipeline class.
-diffusers>=0.32.0
+# FLUX.2 support landed in diffusers >= 0.32.0. Ideogram-4 (Ideogram4Pipeline
+# with Qwen3-VL text encoder) landed in >= 0.33.0 — bump the pin so
+# DiffusionPipeline.from_pretrained can auto-detect either family.
+diffusers>=0.33.0
 transformers>=4.46.0
 accelerate>=0.34.0
 sentencepiece>=0.2.0
 protobuf>=4.25.0
 huggingface_hub>=0.24.0
+# bitsandbytes: required only for NF4/INT8 quantized checkpoints
+# (Ideogram-4-nf4 loads via its baked-in quant config). Safe to include
+# even for FLUX runs — dormant unless the checkpoint asks for it.
+bitsandbytes>=0.43.0
 
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0

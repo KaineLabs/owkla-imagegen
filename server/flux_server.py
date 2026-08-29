@@ -89,13 +89,40 @@ class GenerateBody(BaseModel):
     fast: bool = False
 
 
+def _is_quantized_checkpoint(model_id: str) -> bool:
+    """
+    Quantized checkpoints (bitsandbytes NF4/INT8, custom FP8) must NOT be
+    moved with `.to("cuda")` after loading — the quantized weights are
+    already device-placed at load time and moving them corrupts state.
+    Detect by naming convention: `nf4`, `int4`, `int8`, `fp8` in the
+    model id all imply weights already carry a device_map.
+    """
+    lower = model_id.lower()
+    return any(tag in lower for tag in ("nf4", "int4", "int8", "fp8"))
+
+
 @app.on_event("startup")
 def _load_model() -> None:
     global pipe
-    log.info("Loading %s (dtype=%s, cpu_offload=%s) …", MODEL_ID, DTYPE_NAME, CPU_OFFLOAD)
+    quantized = _is_quantized_checkpoint(MODEL_ID)
+    log.info(
+        "Loading %s (dtype=%s, cpu_offload=%s, quantized=%s) …",
+        MODEL_ID, DTYPE_NAME, CPU_OFFLOAD, quantized,
+    )
+
+    # Quantized checkpoints (Ideogram-4-nf4, similar) place weights on
+    # the device at load time via `device_map`. Skip the manual `.to()`
+    # and the CPU-offload path — both would break the quantized layout.
+    if quantized:
+        pipe = DiffusionPipeline.from_pretrained(
+            MODEL_ID, torch_dtype=DTYPE, device_map="cuda",
+        )
+        log.info("Model loaded on CUDA via device_map (quantized checkpoint).")
+        return
+
     pipe = DiffusionPipeline.from_pretrained(MODEL_ID, torch_dtype=DTYPE)
 
-    # Two paths:
+    # Two paths for full-precision checkpoints:
     #   - CPU offload: components live on CPU RAM, migrate to GPU on
     #     demand per submodule call. ~2x slower per image but the only
     #     way to fit FLUX.2-dev (32B) on a single 80GB card.
