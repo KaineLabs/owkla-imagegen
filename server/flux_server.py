@@ -110,14 +110,23 @@ def _load_model() -> None:
         MODEL_ID, DTYPE_NAME, CPU_OFFLOAD, quantized,
     )
 
-    # Quantized checkpoints (Ideogram-4-nf4, similar) place weights on
-    # the device at load time via `device_map`. Skip the manual `.to()`
-    # and the CPU-offload path — both would break the quantized layout.
+    # Quantized checkpoints (Ideogram-4-nf4/fp8, bitsandbytes) place
+    # weights on the device at load time via `device_map`. Skip the
+    # manual `.to()` and the CPU-offload path — both would break the
+    # quantized layout.
+    #
+    # `device_map="auto"` lets accelerate compute the placement plan
+    # itself. Using literal `"cuda"` triggered
+    #   `NotImplementedError: Cannot copy out of meta tensor; no data!`
+    # on diffusers 0.33+ / accelerate 1.x because it tried to `.to()`
+    # meta-tensor weights that bitsandbytes had already reserved
+    # slots for. `"auto"` uses the balanced-single-GPU path which
+    # dispatches meta tensors via `to_empty()` instead.
     if quantized:
         pipe = DiffusionPipeline.from_pretrained(
-            MODEL_ID, torch_dtype=DTYPE, device_map="cuda",
+            MODEL_ID, torch_dtype=DTYPE, device_map="auto",
         )
-        log.info("Model loaded on CUDA via device_map (quantized checkpoint).")
+        log.info("Model loaded on CUDA via device_map=auto (quantized checkpoint).")
         return
 
     pipe = DiffusionPipeline.from_pretrained(MODEL_ID, torch_dtype=DTYPE)
