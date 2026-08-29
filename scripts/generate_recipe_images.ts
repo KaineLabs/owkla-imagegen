@@ -270,6 +270,9 @@ async function main() {
       done += 1;
       const secs = ((Date.now() - stepStart) / 1000).toFixed(1);
       console.log(`✓ (${secs}s)`);
+      // Full public URL on its own line — paste-able into a browser
+      // to inspect the actual image quality mid-batch.
+      console.log(`  ${publicUrl}`);
     } catch (e) {
       failed += 1;
       console.log(`✗ ${(e as Error).message}`);
