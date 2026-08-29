@@ -65,6 +65,12 @@ PORT = int(os.environ.get("PORT", "7860"))
 DTYPE_NAME = os.environ.get("TORCH_DTYPE", "bfloat16")
 DTYPE = getattr(torch, DTYPE_NAME)
 
+# CPU offload — required for FLUX.2-dev on any single A100 (even 80GB
+# isn't enough for the 32B transformer + 7B Mistral encoder + VAE +
+# activations in native BF16). Set `CPU_OFFLOAD=1` to force it, or
+# leave unset and let the OOM auto-fallback below trigger it.
+CPU_OFFLOAD = os.environ.get("CPU_OFFLOAD", "").lower() in ("1", "true", "yes")
+
 app = FastAPI()
 # Populated once at boot in @app.on_event("startup"). Typed as the
 # generic DiffusionPipeline since the concrete class depends on which
@@ -86,13 +92,32 @@ class GenerateBody(BaseModel):
 @app.on_event("startup")
 def _load_model() -> None:
     global pipe
-    log.info("Loading %s (dtype=%s) …", MODEL_ID, DTYPE_NAME)
+    log.info("Loading %s (dtype=%s, cpu_offload=%s) …", MODEL_ID, DTYPE_NAME, CPU_OFFLOAD)
     pipe = DiffusionPipeline.from_pretrained(MODEL_ID, torch_dtype=DTYPE)
-    # Move to GPU. `enable_model_cpu_offload` would let smaller cards
-    # run this at ~2-4x slower — worth toggling for <40GB VRAM. On the
-    # 80GB A100 we're targeting, direct `.to("cuda")` is faster.
-    pipe.to("cuda")
-    log.info("Model loaded and resident on CUDA.")
+
+    # Two paths:
+    #   - CPU offload: components live on CPU RAM, migrate to GPU on
+    #     demand per submodule call. ~2x slower per image but the only
+    #     way to fit FLUX.2-dev (32B) on a single 80GB card.
+    #   - Full residence: everything on CUDA, faster inference. Works
+    #     for FLUX.1-dev (~12B) or FLUX.2-klein but OOMs on FLUX.2-dev.
+    if CPU_OFFLOAD:
+        pipe.enable_model_cpu_offload()
+        log.info("Model loaded with CPU offload (fits large models, ~2x slower).")
+        return
+
+    try:
+        pipe.to("cuda")
+        log.info("Model loaded and resident on CUDA.")
+    except torch.OutOfMemoryError:
+        # Whatever partially loaded — free it before retrying so the
+        # offload path has clean VRAM to work with.
+        log.warning("OOM on full CUDA residence — falling back to CPU offload.")
+        del pipe
+        torch.cuda.empty_cache()
+        pipe = DiffusionPipeline.from_pretrained(MODEL_ID, torch_dtype=DTYPE)
+        pipe.enable_model_cpu_offload()
+        log.info("Model loaded with CPU offload (fallback path).")
 
 
 @app.get("/health")
